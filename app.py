@@ -69,37 +69,48 @@ def extract_text(file):
     personal_details = extract_personal_details(text)
     return text, personal_details
 
-# --- Analysis Function ---
+# --- Improved Analysis Function ---
 def analyze_resume(jd, resume_text):
     prompt = f"""
-    Analyze this resume against the job description:
-    
-    Job Requirements:
-    {jd}
-    
+    As a senior recruiter, analyze this resume against the job description.
+    Calculate a match score (0-100) based on:
+    - Required skills match (50% weight)
+    - Years of relevant experience (30% weight)
+    - Education/certifications (20% weight)
+
+    Return STRICT JSON format:
+    {{
+        "score": 0-100,
+        "skill_matches": [],
+        "missing_requirements": [],
+        "experience_analysis": "",
+        "summary": ""
+    }}
+
+    Job Description:
+    {jd[:5000]}
+
     Resume:
-    {resume_text}
-    
-    Return JSON with:
-    - "score" (0-100)
-    - "matches" (top 3 skills)
-    - "gaps" (top 3 missing)
-    - "summary" (3 bullet points)
+    {resume_text[:5000]}
     """
     try:
         response = model.generate_content(prompt)
-        return eval(response.text)
-    except:
+        # Clean response and parse JSON
+        json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
+        return json.loads(json_str)
+    except Exception as e:
+        st.error(f"Analysis error: {str(e)}")
         return {
             "score": 0,
-            "matches": [],
-            "gaps": [],
-            "summary": "Analysis failed"
+            "skill_matches": [],
+            "missing_requirements": [],
+            "experience_analysis": "Analysis failed",
+            "summary": "Could not evaluate"
         }
 
 # --- UI Flow ---
 st.set_page_config(layout="wide", page_title="RecruitAI Pro")
-st.title("🚀 RecruitAI Pro - Enhanced Parser")
+st.title("🚀 RecruitAI Pro - Smart Matching")
 
 # --- Step 1: Upload JD ---
 st.subheader("📋 1. Upload Job Description")
@@ -136,29 +147,38 @@ if st.session_state.candidates:
     st.divider()
     st.subheader("👥 Candidate Evaluation Dashboard")
     
-    # DataFrame with all details
-    df = pd.DataFrame(st.session_state.candidates)
-    df = df[['name', 'email', 'phone', 'education', 'score', 'matches', 'gaps']]
+    # Create DataFrame with all details
+    df_data = []
+    for c in st.session_state.candidates:
+        df_data.append({
+            "Name": c["name"],
+            "Email": c["email"],
+            "Match Score": c["score"],
+            "Top Skills": ", ".join(c["skill_matches"][:3]),
+            "Missing": ", ".join(c["missing_requirements"][:3]),
+            "Education": c["education"]
+        })
+    
+    df = pd.DataFrame(df_data)
     
     # Interactive table
     st.dataframe(
-        df.sort_values('score', ascending=False),
+        df.sort_values("Match Score", ascending=False),
         column_config={
-            "score": st.column_config.ProgressColumn(
+            "Match Score": st.column_config.ProgressColumn(
                 "Match Score",
                 format="%d%%",
                 min_value=0,
                 max_value=100,
             ),
-            "email": st.column_config.LinkColumn("Email"),
-            "linkedin": st.column_config.LinkColumn("LinkedIn")
+            "Email": st.column_config.LinkColumn("Email"),
         },
         hide_index=True,
         use_container_width=True
     )
     
-    # Candidate Details Expandable Section
-    selected_name = st.selectbox("View full details", df['name'])
+    # Candidate Details Section
+    selected_name = st.selectbox("View full details", df['Name'])
     candidate = next(c for c in st.session_state.candidates if c['name'] == selected_name)
     
     col1, col2 = st.columns(2)
@@ -172,14 +192,17 @@ if st.session_state.candidates:
         
     with col2:
         st.markdown(f"### ⚡ Match Score: {candidate['score']}/100")
-        st.markdown("**✅ Top Matches:**")
-        for match in candidate['matches']:
-            st.markdown(f"- {match}")
+        st.markdown("**✅ Top Skill Matches:**")
+        for skill in candidate['skill_matches'][:3]:
+            st.markdown(f"- {skill}")
         
-        st.markdown("**⚠️ Key Gaps:**")
-        for gap in candidate['gaps']:
-            st.markdown(f"- {gap}")
+        st.markdown("**⚠️ Missing Requirements:**")
+        for req in candidate['missing_requirements'][:3]:
+            st.markdown(f"- {req}")
     
     st.divider()
-    st.markdown("**📄 Resume Excerpt:**")
-    st.text(candidate['resume_text'])
+    st.markdown("**📊 Experience Analysis:**")
+    st.write(candidate['experience_analysis'])
+    
+    st.markdown("**📄 Summary:**")
+    st.write(candidate['summary'])
