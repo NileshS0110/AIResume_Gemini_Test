@@ -6,6 +6,7 @@ import pandas as pd
 import base64
 from datetime import datetime
 import re
+import io
 
 # --- Gemini Setup ---
 if "GEMINI_API_KEY" not in st.secrets:
@@ -71,33 +72,39 @@ st.set_page_config(layout="wide", page_title="RecruitAI Pro")
 st.title("🚀 RecruitAI Pro - End-to-End Hiring Assistant")
 
 # --- Step 1: Upload JD ---
-with st.expander("📋 1. Upload Job Description", expanded=True):
-    jd_file = st.file_uploader("Upload JD (PDF/DOCX)", type=["pdf","docx"], key="jd_uploader")
-    if jd_file:
-        st.session_state.jd_text = extract_text(jd_file)
-        with st.expander("View Parsed JD"):
-            st.write(st.session_state.jd_text[:2000] + "...")
+st.subheader("📋 1. Upload Job Description")
+jd_file = st.file_uploader("Upload JD (PDF/DOCX)", type=["pdf","docx"], key="jd_uploader")
+if jd_file:
+    st.session_state.jd_text = extract_text(jd_file)
+    if st.checkbox("Show Parsed JD Text"):
+        st.text_area("Job Description Text", st.session_state.jd_text[:2000] + "...", height=200)
 
 # --- Step 2: Batch Resume Processing ---
 if st.session_state.jd_text:
-    with st.expander("📚 2. Upload Resumes (Batch)", expanded=True):
-        resumes = st.file_uploader("Upload Multiple Resumes", 
-                                 type=["pdf","docx","txt"], 
-                                 accept_multiple_files=True,
-                                 key="resume_uploader")
+    st.subheader("📚 2. Upload Resumes (Batch)")
+    resumes = st.file_uploader("Upload Multiple Resumes", 
+                             type=["pdf","docx","txt"], 
+                             accept_multiple_files=True,
+                             key="resume_uploader")
+    
+    if resumes and st.button("Analyze Batch", key="analyze_btn"):
+        st.session_state.candidates = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        if resumes and st.button("Analyze Batch", key="analyze_btn"):
-            st.session_state.candidates = []
-            with st.spinner(f"Processing {len(resumes)} resumes..."):
-                for i, resume in enumerate(resumes):
-                    with st.status(f"Analyzing {resume.name}..."):
-                        text = extract_text(resume)
-                        analysis = analyze_resume(st.session_state.jd_text, text)
-                        if analysis:
-                            analysis['name'] = resume.name.split('.')[0]
-                            analysis['resume'] = text[:500] + "..."
-                            st.session_state.candidates.append(analysis)
-                            st.json(analysis)
+        for i, resume in enumerate(resumes):
+            status_text.text(f"Processing {i+1}/{len(resumes)}: {resume.name}")
+            progress_bar.progress((i+1)/len(resumes))
+            
+            text = extract_text(resume)
+            analysis = analyze_resume(st.session_state.jd_text, text)
+            if analysis:
+                analysis['name'] = resume.name.split('.')[0]
+                analysis['resume'] = text[:500] + "..."
+                st.session_state.candidates.append(analysis)
+        
+        status_text.success(f"Completed analysis of {len(resumes)} resumes!")
+        progress_bar.empty()
 
 # --- Step 3: Results Dashboard ---
 if st.session_state.candidates:
@@ -143,27 +150,26 @@ if st.session_state.candidates:
 # --- Step 4: Export ---
 if st.session_state.candidates:
     st.divider()
-    with st.expander("📤 4. Export Results"):
-        # Excel Export
-        excel_buffer = pd.ExcelWriter('temp.xlsx', engine='xlsxwriter')
-        df.to_excel(excel_buffer, index=False)
-        excel_buffer.close()
-        with open('temp.xlsx', 'rb') as f:
-            excel_data = f.read()
-        b64 = base64.b64encode(excel_data).decode()
-        st.download_button(
-            label="📥 Export to Excel",
-            data=excel_data,
-            file_name=f"candidate_report_{datetime.now().date()}.xlsx",
-            mime="application/vnd.ms-excel",
-            key="excel_export"
-        )
-        
-        # ATS Integration Placeholder
-        st.markdown("### 🔗 ATS Integration")
-        st.selectbox("Select ATS", ["Greenhouse", "Lever", "Workday"], key="ats_select")
-        st.button("Sync Selected Candidates", key="ats_sync")
+    st.subheader("📤 4. Export Results")
+    
+    # Excel Export
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False)
+    
+    st.download_button(
+        label="📥 Export to Excel",
+        data=excel_buffer.getvalue(),
+        file_name=f"candidate_report_{datetime.now().date()}.xlsx",
+        mime="application/vnd.ms-excel",
+        key="excel_export"
+    )
+    
+    # ATS Integration Placeholder
+    st.markdown("### 🔗 ATS Integration")
+    st.selectbox("Select ATS", ["Greenhouse", "Lever", "Workday"], key="ats_select")
+    st.button("Sync Selected Candidates", key="ats_sync")
 
 # --- Debug Section ---
-with st.expander("Debug"):
+if st.checkbox("Show Debug Info"):
     st.write(st.session_state)
