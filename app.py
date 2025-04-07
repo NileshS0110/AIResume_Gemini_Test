@@ -38,7 +38,7 @@ def extract_text(file):
 
 def analyze_resume(jd, resume_text):
     prompt = f"""
-    Analyze this resume against the job description and return STRICT JSON format only:
+    You are a senior recruiter. Analyze this resume against the job description and return STRICT JSON format only:
     
     {{
         "score": 0-100,
