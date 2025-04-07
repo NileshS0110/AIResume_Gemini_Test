@@ -7,6 +7,7 @@ import base64
 from datetime import datetime
 import re
 import io
+import json
 
 # --- Gemini Setup ---
 if "GEMINI_API_KEY" not in st.secrets:
@@ -33,25 +34,40 @@ def extract_text(file):
         return docx2txt.process(file)
     return file.read().decode()
 
+
+
 def analyze_resume(jd, resume_text):
     prompt = f"""
-    Analyze this resume against the job description:
+    Analyze this resume against the job description and return STRICT JSON format only:
     
-    Job Requirements:
-    {jd}
+    {{
+        "score": 0-100,
+        "matches": ["skill1", "skill2", "skill3"],
+        "gaps": ["requirement1", "requirement2", "requirement3"],
+        "summary": "3 bullet points max"
+    }}
     
-    Resume:
-    {resume_text}
-    
-    Return as JSON with:
-    - "score" (0-100)
-    - "matches" (top 3 skills)
-    - "gaps" (top 3 missing)
-    - "summary" (3 bullet points)
+    Job Description: {jd[:3000]}
+    Resume: {resume_text[:3000]}
     """
+    
     try:
         response = model.generate_content(prompt)
-        return eval(response.text)  # Convert JSON string to dict
+        
+        # Extract JSON string from response
+        json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
+        
+        # Parse JSON safely
+        return json.loads(json_str)
+        
+    except json.JSONDecodeError as e:
+        st.error(f"Failed to parse JSON: {str(e)}\nRaw response: {response.text}")
+        return {
+            "score": 0,
+            "matches": [],
+            "gaps": [],
+            "summary": "Analysis failed - invalid response format"
+        }
     except Exception as e:
         st.error(f"Analysis failed: {str(e)}")
         return None
